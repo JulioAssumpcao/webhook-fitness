@@ -28,16 +28,17 @@ export default async function handler(req, res) {
     if (existingUsers?.users?.length > 0) {
       userId = existingUsers.users[0].id;
 
-      // Atualiza o metadata do usuário existente
+      // Atualiza o metadata e telefone do usuário existente
       const { error: updateMetaError } = await supabase.auth.admin.updateUserById(userId, {
         user_metadata: {
           nome,
           celular
-        }
+        },
+        phone: celular,  // Adicionando o telefone no campo 'phone'
       });
 
       if (updateMetaError) {
-        throw new Error('Erro ao atualizar metadata do usuário: ' + updateMetaError.message);
+        throw new Error('Erro ao atualizar metadata ou telefone do usuário: ' + updateMetaError.message);
       }
 
     } else {
@@ -48,7 +49,8 @@ export default async function handler(req, res) {
         user_metadata: {
           nome,
           celular
-        }
+        },
+        phone: celular,  // Adicionando o telefone no campo 'phone'
       });
 
       if (authError) throw new Error('Erro ao criar usuário no auth: ' + authError.message);
