@@ -9,35 +9,40 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 export default async (req, res) => {
   // Certificando-se de que é uma requisição POST
   if (req.method === 'POST') {
-    const { nome, email } = req.body;
+    // Pegando os tickets do evento
+    const { event_tickets } = req.body;
 
-    // Logando os dados recebidos
-    console.log('Dados recebidos:', req.body);
-
-    // Verificar se nome e email foram enviados
-    if (!nome || !email) {
-      console.error('Erro: Nome e email são obrigatórios');
-      return res.status(400).json({ message: 'Nome e email são obrigatórios.' });
+    // Verificando se o array de tickets existe e contém ao menos um ticket
+    if (!event_tickets || event_tickets.length === 0) {
+      return res.status(400).json({ message: 'Não foram encontrados tickets no evento.' });
     }
 
+    // Percorrendo os tickets e inserindo no Supabase
     try {
-      // Inserir os dados na tabela "profiles" do Supabase
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert([{ nome: nome, email: email }]);
+      // Inserir os dados dos tickets na tabela "profiles" do Supabase
+      for (const ticket of event_tickets) {
+        const { name, email } = ticket;
 
-      if (error) {
-        console.error('Erro ao inserir no Supabase:', error.message);
-        return res.status(500).json({ message: 'Erro ao adicionar usuário: ' + error.message });
+        // Verificar se o nome e o email existem para cada ticket
+        if (!name || !email) {
+          return res.status(400).json({ message: 'Nome e email são obrigatórios para cada ticket.' });
+        }
+
+        // Inserir no banco de dados
+        const { data, error } = await supabase
+          .from('profiles')
+          .insert([{ nome: name, email: email }]);
+
+        if (error) {
+          return res.status(500).json({ message: 'Erro ao adicionar usuário: ' + error.message });
+        }
       }
 
-      return res.status(200).json({ message: 'Usuário adicionado com sucesso!', data });
+      return res.status(200).json({ message: 'Usuários adicionados com sucesso!' });
     } catch (err) {
-      console.error('Erro inesperado ao processar a requisição:', err.message);
       return res.status(500).json({ message: 'Erro ao processar a requisição: ' + err.message });
     }
   } else {
-    console.error('Método não permitido:', req.method);
     return res.status(405).json({ message: 'Método não permitido. Use POST.' });
   }
 };
