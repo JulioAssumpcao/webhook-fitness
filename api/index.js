@@ -34,7 +34,9 @@ export default async function handler(req, res) {
           nome,
           celular
         },
-        phone: celular,  // Adicionando o telefone no campo 'phone'
+        raw_user_meta_data: { // Atualizando o telefone aqui
+          celular,
+        }
       });
 
       if (updateMetaError) {
@@ -50,7 +52,9 @@ export default async function handler(req, res) {
           nome,
           celular
         },
-        phone: celular,  // Adicionando o telefone no campo 'phone'
+        raw_user_meta_data: { // Adicionando o telefone aqui
+          celular,
+        }
       });
 
       if (authError) throw new Error('Erro ao criar usuário no auth: ' + authError.message);
