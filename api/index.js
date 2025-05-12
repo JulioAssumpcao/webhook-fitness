@@ -1,57 +1,61 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  'https://zdwipxnczcikgretwkum.supabase.co',
-  'SUA_SERVICE_ROLE_KEY' // Substitua por sua chave do tipo SERVICE ROLE
+  "https://zdwipxnczcikgretwkum.supabase.co", // sua URL do supabase
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpkd2lweG5jemNpa2dyZXR3a3VtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzAwMzM4NSwiZXhwIjoyMDYyNTc5Mzg1fQ.LvjiTobeUKN0gXEIsowFapJjurIbN0zs97R8qrkcXx4" // sua chave Service Role do Supabase
 );
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
-  }
+  if (req.method === "POST") {
+    try {
+      // Obtendo dados do corpo da requisição
+      const body = req.body;
 
-  try {
-    const data = req.body;
-    const cliente = data.Cliente || {};
-    const produto = data.Produto || {};
-    const comissoes = data.Comissões || {};
+      // Extraindo nome e email corretamente da estrutura da Kiwify
+      const nome = body.Cliente?.full_name;
+      const email = body.Cliente?.["e-mail"];
 
-    const nome = cliente.full_name;
-    const email = cliente["e-mail"];
+      // Verificando se nome e email existem
+      if (!nome || !email) {
+        throw new Error(`Erro: nome ou email faltando { nome: ${nome}, email: ${email} }`);
+      }
 
-    if (!nome || !email) {
-      console.error('Erro: nome ou email faltando', { nome, email });
-      return res.status(400).json({ error: 'Nome e email são obrigatórios' });
+      // Inserindo dados no Supabase
+      const { data, error } = await supabase
+        .from("profiles") // Assumindo que a tabela no Supabase se chama "profiles"
+        .insert([
+          {
+            nome: nome,
+            email: email,
+            cpf: body.Cliente?.cnpj || null,
+            celular: body.Cliente?.celular || null,
+            endereco: body.Cliente?.rua || null,
+            cidade: body.Cliente?.cidade || null,
+            estado: body.Cliente?.estado || null,
+            cep: body.Cliente?.CEP || null,
+            produto_nome: body.Produto?.product_name || null,
+            tipo_produto: body.product_type || null,
+            valor_comissao: body.Comissões?.valor_da_cobrança || null,
+            status_pedido: body.order_status || null,
+            data_criacao: body.created_at || null,
+            data_atualizacao: body.updated_at || null,
+            subscription_id: body.subscription_id || null
+          }
+        ]);
+
+      if (error) {
+        console.error("Erro ao inserir no Supabase:", error);
+        return res.status(500).json({ error: "Erro ao inserir no Supabase" });
+      }
+
+      // Respondendo com sucesso
+      return res.status(200).json({ message: "Dados inseridos com sucesso", data });
+    } catch (error) {
+      console.error("Erro no webhook:", error);
+      return res.status(400).json({ error: error.message });
     }
-
-    const { error } = await supabase.from('profiles').insert([
-      {
-        nome,
-        email,
-        celular: cliente.celular,
-        cpf: cliente.cnpj,
-        endereco: cliente.rua,
-        cidade: cliente.cidade,
-        estado: cliente.estado,
-        cep: cliente.CEP,
-        produto_nome: produto.product_name,
-        tipo_produto: data.product_type,
-        valor_comissao: comissoes.minha_comissão,
-        status_pedido: data.order_status,
-        data_criacao: new Date(data.created_at),
-        data_atualizacao: new Date(data.updated_at),
-        subscription_id: data.id_de_assinatura,
-      },
-    ]);
-
-    if (error) {
-      console.error('Erro ao inserir no Supabase:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json({ message: 'Dados inseridos com sucesso' });
-  } catch (err) {
-    console.error('Erro inesperado:', err);
-    return res.status(500).json({ error: 'Erro ao processar a requisição' });
+  } else {
+    // Se não for um método POST
+    return res.status(405).json({ error: "Método não permitido" });
   }
 }
