@@ -22,24 +22,40 @@ export default async function handler(req, res) {
     });
 
     let userId;
+
     if (fetchError) {
       throw new Error('Erro ao verificar usuários existentes: ' + fetchError.message);
     }
 
     if (existingUsers?.users?.length > 0) {
       userId = existingUsers.users[0].id;
+
+      // Atualiza user_metadata se o usuário já existe
+      const { error: updateMetaError } = await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: {
+          nome
+        }
+      });
+
+      if (updateMetaError) {
+        console.warn('Aviso: Não foi possível atualizar user_metadata:', updateMetaError.message);
+      }
+
     } else {
-      // Cria novo usuário no auth
+      // Cria novo usuário no auth com user_metadata
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
         email,
-        email_confirm: true
+        email_confirm: true,
+        user_metadata: {
+          nome
+        }
       });
 
       if (authError) throw new Error('Erro ao criar usuário no auth: ' + authError.message);
       userId = authUser.user.id;
     }
 
-    // Insere dados no profiles
+    // Insere ou atualiza dados no profiles
     const { error: insertError } = await supabase.from('profiles').upsert({
       id: userId,
       email: email,
