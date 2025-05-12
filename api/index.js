@@ -15,8 +15,8 @@ export default async function handler(req, res) {
       console.log("Dados recebidos:", JSON.stringify(body, null, 2));
 
       // Extraindo nome e email corretamente da estrutura da Kiwify
-      const nome = body.Cliente?.full_name;
-      const email = body.Cliente?.["e-mail"];
+      const nome = body.Customer?.full_name;
+      const email = body.Customer?.email;
 
       // Log para verificar nome e email extraídos
       console.log("Nome extraído:", nome);
@@ -34,15 +34,15 @@ export default async function handler(req, res) {
           {
             nome: nome,
             email: email,
-            cpf: body.Cliente?.cnpj || null,
-            celular: body.Cliente?.celular || null,
-            endereco: body.Cliente?.rua || null,
-            cidade: body.Cliente?.cidade || null,
-            estado: body.Cliente?.estado || null,
-            cep: body.Cliente?.CEP || null,
-            produto_nome: body.Produto?.product_name || null,
+            cpf: body.Customer?.cnpj || null,
+            celular: body.Customer?.mobile || null,
+            endereco: body.Customer?.street || null,
+            cidade: body.Customer?.city || null,
+            estado: body.Customer?.state || null,
+            cep: body.Customer?.zipcode || null,
+            produto_nome: body.Product?.product_name || null,
             tipo_produto: body.product_type || null,
-            valor_comissao: body.Comissões?.valor_da_cobrança || null,
+            valor_comissao: body.Commissions?.charge_amount || null,
             status_pedido: body.order_status || null,
             data_criacao: body.created_at || null,
             data_atualizacao: body.updated_at || null,
