@@ -11,18 +11,16 @@ export default async function handler(req, res) {
 
     const email = body.Customer?.email;
     const nome = body.Customer?.full_name;
+    const celular = body.Customer?.mobile || '';
 
     if (!email || !nome) {
       throw new Error(`Erro: nome ou email faltando { nome: ${nome}, email: ${email} }`);
     }
 
     // Verifica se o usuário já existe no auth
-    const { data: existingUsers, error: fetchError } = await supabase.auth.admin.listUsers({
-      email
-    });
+    const { data: existingUsers, error: fetchError } = await supabase.auth.admin.listUsers({ email });
 
     let userId;
-
     if (fetchError) {
       throw new Error('Erro ao verificar usuários existentes: ' + fetchError.message);
     }
@@ -30,24 +28,26 @@ export default async function handler(req, res) {
     if (existingUsers?.users?.length > 0) {
       userId = existingUsers.users[0].id;
 
-      // Atualiza user_metadata se o usuário já existe
+      // Atualiza o metadata do usuário existente
       const { error: updateMetaError } = await supabase.auth.admin.updateUserById(userId, {
         user_metadata: {
-          nome
+          nome,
+          celular
         }
       });
 
       if (updateMetaError) {
-        console.warn('Aviso: Não foi possível atualizar user_metadata:', updateMetaError.message);
+        throw new Error('Erro ao atualizar metadata do usuário: ' + updateMetaError.message);
       }
 
     } else {
-      // Cria novo usuário no auth com user_metadata
+      // Cria novo usuário no auth com metadata
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
         email,
         email_confirm: true,
         user_metadata: {
-          nome
+          nome,
+          celular
         }
       });
 
@@ -55,14 +55,14 @@ export default async function handler(req, res) {
       userId = authUser.user.id;
     }
 
-    // Insere ou atualiza dados no profiles
+    // Insere ou atualiza no profiles
     const { error: insertError } = await supabase.from('profiles').upsert({
       id: userId,
       email: email,
       nome: nome,
-      celular: body.Customer?.mobile,
+      celular: celular,
       cpf: body.Customer?.cnpj,
-      endereco: `${body.Customer?.street}, ${body.Customer?.number} ${body.Customer?.complement}`,
+      endereco: `${body.Customer?.street}, ${body.Customer?.number} ${body.Customer?.complement || ''}`,
       cidade: body.Customer?.city,
       estado: body.Customer?.state,
       cep: body.Customer?.zipcode,
