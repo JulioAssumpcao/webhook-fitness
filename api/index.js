@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
     }
 
     return res.status(200).json({ message: 'Usuário inserido com sucesso.', data });
-
+//
   } catch (err) {
     return res.status(500).json({ message: 'Erro interno.', error: err.message });
   }
