@@ -6,12 +6,17 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-export default async function handler(req, res) {
+export default async (req, res) => {
+  // Certificando-se de que é uma requisição POST
   if (req.method === 'POST') {
     const { nome, email } = req.body;
 
+    // Logando os dados recebidos
+    console.log('Dados recebidos:', req.body);
+
     // Verificar se nome e email foram enviados
     if (!nome || !email) {
+      console.error('Erro: Nome e email são obrigatórios');
       return res.status(400).json({ message: 'Nome e email são obrigatórios.' });
     }
 
@@ -22,14 +27,17 @@ export default async function handler(req, res) {
         .insert([{ nome: nome, email: email }]);
 
       if (error) {
+        console.error('Erro ao inserir no Supabase:', error.message);
         return res.status(500).json({ message: 'Erro ao adicionar usuário: ' + error.message });
       }
 
       return res.status(200).json({ message: 'Usuário adicionado com sucesso!', data });
     } catch (err) {
+      console.error('Erro inesperado ao processar a requisição:', err.message);
       return res.status(500).json({ message: 'Erro ao processar a requisição: ' + err.message });
     }
   } else {
+    console.error('Método não permitido:', req.method);
     return res.status(405).json({ message: 'Método não permitido. Use POST.' });
   }
 };
