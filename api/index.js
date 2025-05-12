@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export const handler = async (req, res) => {
+export default async function handler(req, res) {
   try {
     const body = req.body;
 
@@ -68,4 +68,4 @@ export const handler = async (req, res) => {
     console.error('Erro no webhook:', err);
     return res.status(500).json({ error: err.message });
   }
-};
+}
