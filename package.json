@@ -1,8 +1,10 @@
 {
   "name": "webhook-fitness",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "api/index.js",
+  "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0"
   }
 }
+
