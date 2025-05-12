@@ -7,12 +7,12 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'seu_
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 export default async function handler(req, res) {
-  // Certificando-se de que é uma requisição POST
   if (req.method === 'POST') {
     const { nome, email } = req.body;
 
     // Verificar se nome e email foram enviados
     if (!nome || !email) {
+      console.log('Erro: nome ou email faltando', { nome, email });
       return res.status(400).json({ message: 'Nome e email são obrigatórios.' });
     }
 
@@ -23,11 +23,14 @@ export default async function handler(req, res) {
         .insert([{ nome: nome, email: email }]);
 
       if (error) {
+        console.log('Erro ao inserir no Supabase', error);
         return res.status(500).json({ message: 'Erro ao adicionar usuário: ' + error.message });
       }
 
+      console.log('Usuário inserido com sucesso', data);
       return res.status(200).json({ message: 'Usuário adicionado com sucesso!', data });
     } catch (err) {
+      console.log('Erro ao processar a requisição:', err);
       return res.status(500).json({ message: 'Erro ao processar a requisição: ' + err.message });
     }
   } else {
