@@ -11,9 +11,16 @@ export default async function handler(req, res) {
       // Obtendo dados do corpo da requisição
       const body = req.body;
 
+      // Log para ver a estrutura completa do corpo da requisição
+      console.log("Dados recebidos:", JSON.stringify(body, null, 2));
+
       // Extraindo nome e email corretamente da estrutura da Kiwify
       const nome = body.Cliente?.full_name;
       const email = body.Cliente?.["e-mail"];
+
+      // Log para verificar nome e email extraídos
+      console.log("Nome extraído:", nome);
+      console.log("Email extraído:", email);
 
       // Verificando se nome e email existem
       if (!nome || !email) {
