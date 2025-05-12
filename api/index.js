@@ -9,22 +9,28 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 export default async (req, res) => {
   // Certificando-se de que é uma requisição POST
   if (req.method === 'POST') {
-    // Pegando os tickets do evento
+    console.log('Recebendo dados:', req.body); // Log dos dados recebidos
+
     const { event_tickets } = req.body;
 
     // Verificando se o array de tickets existe e contém ao menos um ticket
     if (!event_tickets || event_tickets.length === 0) {
+      console.log('Erro: Não foram encontrados tickets no evento.');
       return res.status(400).json({ message: 'Não foram encontrados tickets no evento.' });
     }
 
     // Percorrendo os tickets e inserindo no Supabase
     try {
-      // Inserir os dados dos tickets na tabela "profiles" do Supabase
+      console.log('Iniciando o processamento dos tickets...');
+      
       for (const ticket of event_tickets) {
+        console.log('Processando ticket:', ticket); // Log de cada ticket sendo processado
+
         const { name, email } = ticket;
 
         // Verificar se o nome e o email existem para cada ticket
         if (!name || !email) {
+          console.log('Erro: Nome e email ausentes no ticket:', ticket);
           return res.status(400).json({ message: 'Nome e email são obrigatórios para cada ticket.' });
         }
 
@@ -34,12 +40,16 @@ export default async (req, res) => {
           .insert([{ nome: name, email: email }]);
 
         if (error) {
+          console.log('Erro ao inserir no Supabase:', error.message); // Log do erro ao inserir
           return res.status(500).json({ message: 'Erro ao adicionar usuário: ' + error.message });
         }
+
+        console.log('Usuário adicionado com sucesso:', data); // Log após a inserção no banco
       }
 
       return res.status(200).json({ message: 'Usuários adicionados com sucesso!' });
     } catch (err) {
+      console.log('Erro no processo:', err.message); // Log de erro no processo
       return res.status(500).json({ message: 'Erro ao processar a requisição: ' + err.message });
     }
   } else {
