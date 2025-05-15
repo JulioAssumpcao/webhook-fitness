@@ -10,14 +10,20 @@ export default async function handler(req, res) {
     const body = req.body;
 
     const email = body.Customer?.email?.toLowerCase().trim();
-    const nome = body.Customer?.full_name?.trim();
+    const nome = body.Customer?.full_name;
     const celular = body.Customer?.mobile || '';
 
     if (!email || !nome) {
       throw new Error(`Erro: nome ou email faltando { nome: ${nome}, email: ${email} }`);
     }
 
-    // Verifica se o usuário já existe no auth
+    // Detecta CPF ou CNPJ
+    let documento = body.Customer?.CPF || body.Customer?.cnpj || '';
+    documento = documento?.replace(/\D/g, ''); // Remove tudo que não for número
+
+    const tipo_documento = documento.length === 11 ? 'cpf' : documento.length === 14 ? 'cnpj' : 'desconhecido';
+
+    // Verifica se o usuário já existe no Auth
     const { data: existingUsers, error: fetchError } = await supabase.auth.admin.listUsers({ email });
 
     let userId;
@@ -28,47 +34,48 @@ export default async function handler(req, res) {
     if (existingUsers?.users?.length > 0) {
       userId = existingUsers.users[0].id;
 
-      // Atualiza o metadata do usuário existente
+      // Atualiza metadados
       const { error: updateMetaError } = await supabase.auth.admin.updateUserById(userId, {
-        user_metadata: { nome, celular },
-        raw_user_meta_data: { celular },
+        user_metadata: {
+          nome,
+          celular
+        },
+        raw_user_meta_data: {
+          celular
+        }
       });
 
       if (updateMetaError) {
         throw new Error('Erro ao atualizar metadata do usuário: ' + updateMetaError.message);
       }
-
     } else {
       // Cria novo usuário
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
         email,
         email_confirm: true,
-        user_metadata: { nome, celular },
-        raw_user_meta_data: { celular },
+        user_metadata: {
+          nome,
+          celular
+        },
+        raw_user_meta_data: {
+          celular
+        }
       });
 
-      if (authError) throw new Error('Erro ao criar usuário no auth: ' + authError.message);
+      if (authError) throw new Error('Erro ao criar usuário no Auth: ' + authError.message);
       userId = authUser.user.id;
+      console.log('Usuário criado no Auth:', userId);
     }
 
-    // Verifica qual documento veio
-    const cpfCnpj = body.Customer?.CPF || body.Customer?.cnpj || '';
-    const tipoDocumento = body.Customer?.CPF
-      ? 'CPF'
-      : (body.Customer?.cnpj ? 'CNPJ' : 'Indefinido');
-
-    // Cria o endereço completo
-    const endereco = `${body.Customer?.street || ''}, ${body.Customer?.number || ''} ${body.Customer?.complement || ''}`.trim();
-
-    // Insere ou atualiza no profiles
+    // Insere ou atualiza na tabela profiles
     const { error: insertError } = await supabase.from('profiles').upsert({
       id: userId,
       email,
       nome,
       celular,
-      cpf: cpfCnpj,
-      tipo_documento: tipoDocumento,
-      endereco,
+      cpf: documento,
+      tipo_documento,
+      endereco: `${body.Customer?.street || ''}, ${body.Customer?.number || ''} ${body.Customer?.complement || ''}`.trim(),
       cidade: body.Customer?.city || '',
       estado: body.Customer?.state || '',
       cep: body.Customer?.zipcode || '',
@@ -78,12 +85,12 @@ export default async function handler(req, res) {
       status_pedido: body.order_status || '',
       data_criacao: new Date(body.created_at),
       data_atualizacao: new Date(body.updated_at),
-      subscription_id: body.subscription_id || null,
+      subscription_id: body.subscription_id || null
     });
 
     if (insertError) throw new Error('Erro ao inserir no profiles: ' + insertError.message);
 
-    console.log('✅ Usuário e profile criados/atualizados com sucesso.');
+    console.log('✅ Usuário e perfil criados/atualizados com sucesso.');
     return res.status(200).json({ success: true });
 
   } catch (err) {
