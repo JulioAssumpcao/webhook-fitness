@@ -1,96 +1,131 @@
-import { createClient } from '@supabase/supabase-js';
-import sgMail from '@sendgrid/mail';
+import { createClient } from '@supabase/supabase-js'
+import sgMail from '@sendgrid/mail'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Configura variáveis de ambiente
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const sendgridApiKey = process.env.SENDGRID_API_KEY
+const fromEmail = process.env.FROM_EMAIL
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY); // Coloque sua chave da SendGrid nas variáveis de ambiente
+sgMail.setApiKey(sendgridApiKey)
+
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
 
 export default async function handler(req, res) {
   try {
-    const body = req.body;
-    console.log("🔔 Webhook recebido com body:", body);
-
-    const email = body.Customer?.email;
-    const nome = body.Customer?.full_name;
-    const celular = body.Customer?.mobile || '';
-    const cpf = body.Customer?.CPF || body.Customer?.cnpj || '';
-    const tipoDocumento = body.Customer?.CPF ? 'cpf' : 'cnpj';
-    const endereco = `${body.Customer?.street || ''}, ${body.Customer?.number || ''} ${body.Customer?.complement || ''}`;
-    const senhaTemporaria = Math.random().toString(36).slice(-10); // Senha aleatória
-
-    if (!email || !nome) {
-      throw new Error(`Erro: nome ou email faltando { nome: ${nome}, email: ${email} }`);
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' })
     }
 
-    const { data: existingUsers, error: fetchError } = await supabase.auth.admin.listUsers({ email });
+    const data = req.body
 
-    let userId;
-
-    if (fetchError) {
-      throw new Error('Erro ao verificar usuários existentes: ' + fetchError.message);
+    // Dados do cliente
+    const customer = data.Customer
+    if (!customer || !customer.email) {
+      return res.status(400).json({ error: 'Dados do cliente incompletos' })
     }
 
-    if (existingUsers?.users?.length > 0) {
-      userId = existingUsers.users[0].id;
-    } else {
-      const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-        email,
-        password: senhaTemporaria,
-        email_confirm: true,
-        user_metadata: { nome, celular }
-      });
+    const email = customer.email.toLowerCase()
+    const fullName = customer.full_name || customer.first_name || ''
+    const celular = customer.mobile || ''
+    const cpf = customer.CPF || null
+    const cnpj = customer.cnpj || null
 
-      if (authError) throw new Error('Erro ao criar usuário no auth: ' + authError.message);
-      userId = authUser.user.id;
-
-      // Envia e-mail de boas-vindas com login e senha
-      const msg = {
-        to: email,
-        from: 'sistema@seuprojeto.com', // Domínio verificado no SendGrid
-        subject: 'Bem-vindo(a)! Acesso liberado',
-        html: `
-          <h2>Olá, ${nome}!</h2>
-          <p>Seu acesso foi criado com sucesso. Aqui estão suas credenciais:</p>
-          <p><strong>Login:</strong> ${email}</p>
-          <p><strong>Senha:</strong> ${senhaTemporaria}</p>
-          <p><a href="https://fitmemeber.lovable.app">Clique aqui para acessar sua conta</a></p>
-          <p>Recomendamos alterar a senha após o primeiro login.</p>
-        `
-      };
-      await sgMail.send(msg);
+    // Define tipo de documento
+    let tipo_documento = null
+    let documento = null
+    if (cpf && cpf.trim() !== '') {
+      tipo_documento = 'CPF'
+      documento = cpf
+    } else if (cnpj && cnpj.trim() !== '') {
+      tipo_documento = 'CNPJ'
+      documento = cnpj
     }
 
-    // Insere ou atualiza no profiles
-    const { error: insertError } = await supabase.from('profiles').upsert({
-      id: userId,
+    // Gera senha temporária (exemplo simples)
+    const gerarSenhaTemporaria = () => {
+      const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+      let senha = ''
+      for (let i = 0; i < 10; i++) {
+        senha += chars.charAt(Math.floor(Math.random() * chars.length))
+      }
+      return senha
+    }
+
+    const senhaTemporaria = gerarSenhaTemporaria()
+
+    // Tenta criar usuário no Supabase Auth
+    const { data: userData, error: userError } = await supabase.auth.admin.createUser({
       email,
-      nome,
+      password: senhaTemporaria,
+      email_confirm: true,
+      user_metadata: {
+        nome: fullName,
+        celular,
+      },
+    })
+
+    if (userError && userError.code !== '23505') { // 23505 = usuário já existe
+      console.error('Erro ao criar usuário no Auth:', userError)
+      return res.status(500).json({ error: 'Erro ao criar usuário' })
+    }
+
+    // Pega o ID do usuário criado ou existente
+    const userId = userData?.id || (await getUserIdByEmail(email))
+
+    if (!userId) {
+      return res.status(500).json({ error: 'Não foi possível obter o ID do usuário' })
+    }
+
+    // Atualiza ou insere o profile
+    const profileData = {
+      id: userId,
+      nome: fullName,
+      email,
       celular,
-      cpf,
-      tipo_documento: tipoDocumento,
-      endereco,
-      cidade: body.Customer?.city,
-      estado: body.Customer?.state,
-      cep: body.Customer?.zipcode,
-      produto_nome: body.Product?.product_name,
-      tipo_produto: body.product_type,
-      valor_comissao: parseInt(body.Commissions?.my_commission || 0),
-      status_pedido: body.order_status,
-      data_criacao: new Date(body.created_at),
-      data_atualizacao: new Date(body.updated_at),
-      subscription_id: body.subscription_id
-    });
+      tipo_documento,
+      documento,
+      data_atualizacao: new Date(),
+      data_criacao: new Date(),
+    }
 
-    if (insertError) throw new Error('Erro ao inserir no profiles: ' + insertError.message);
+    // Upsert no profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(profileData, { onConflict: 'id' })
 
-    console.log('✅ Usuário e perfil criados/atualizados com sucesso.');
-    return res.status(200).json({ success: true });
+    if (profileError) {
+      console.error('Erro ao inserir/atualizar profile:', profileError)
+      return res.status(500).json({ error: 'Erro ao atualizar profile' })
+    }
 
-  } catch (err) {
-    console.error('❌ Erro no webhook:', err);
-    return res.status(500).json({ error: err.message });
+    // Envia e-mail com login e senha temporária
+    const msg = {
+      to: email,
+      from: fromEmail,
+      subject: 'Bem-vindo! Seu login e senha temporária',
+      text: `Olá ${fullName},\n\nSeu cadastro foi realizado com sucesso.\n\nLogin: ${email}\nSenha temporária: ${senhaTemporaria}\n\nPor favor, acesse e altere sua senha o quanto antes.\n\nObrigado!`,
+    }
+
+    await sgMail.send(msg)
+
+    console.log(`Usuário criado no Auth: ${userId}`)
+    console.log('✅ Usuário e profile criados/atualizados com sucesso.')
+
+    res.status(200).json({ message: 'Usuário criado e e-mail enviado' })
+  } catch (error) {
+    console.error('❌ Erro no webhook:', error)
+    res.status(500).json({ error: error.message })
   }
+}
+
+// Função auxiliar para buscar user ID pelo email se já existir
+async function getUserIdByEmail(email) {
+  const { data, error } = await supabase.auth.admin.listUsers()
+  if (error) {
+    console.error('Erro ao listar usuários:', error)
+    return null
+  }
+  const user = data.users.find((u) => u.email === email)
+  return user?.id || null
 }
