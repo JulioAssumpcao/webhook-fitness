@@ -1,136 +1,129 @@
-import { createClient } from '@supabase/supabase-js'
-import sgMail from '@sendgrid/mail'
+import { createClient } from '@supabase/supabase-js';
+import sgMail from '@sendgrid/mail';
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const sendgridApiKey = process.env.SENDGRID_API_KEY
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-sgMail.setApiKey(sendgridApiKey)
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: { persistSession: false }
-})
+const generatePassword = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let pass = '';
+  for (let i = 0; i < 10; i++) {
+    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pass;
+};
 
 export default async function handler(req, res) {
-  try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' })
-    }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ message: 'Method Not Allowed' });
+  }
 
-    const body = req.body
+  const body = req.body;
 
-    // Dados do cliente
-    const {
-      Customer: {
-        full_name,
-        email,
-        mobile,
-        CPF,
-        cnpj
-      } = {}
-    } = body
+  console.log('🔔 Webhook recebido com body:', body);
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email é obrigatório' })
-    }
+  const email = body.Customer?.email?.toLowerCase();
+  const nome = body.Customer?.full_name;
+  const celular = body.Customer?.mobile;
+  const CPF = body.Customer?.CPF;
+  const CNPJ = body.Customer?.cnpj;
+  const documento = CNPJ || CPF || '';
+  const tipo_documento = CNPJ ? 'CNPJ' : 'CPF';
 
-    // Define o tipo de documento
-    let tipo_documento = null
-    let documento = null
+  const senhaTemporaria = generatePassword();
 
-    if (CPF && CPF.trim() !== '') {
-      tipo_documento = 'CPF'
-      documento = CPF.trim()
-    } else if (cnpj && cnpj.trim() !== '') {
-      tipo_documento = 'CNPJ'
-      documento = cnpj.trim()
-    } else {
-      tipo_documento = 'Outro'
-      documento = null
-    }
+  // Verifica se já existe usuário
+  const { data: existingUsers } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', email)
+    .limit(1);
 
-    // Cria senha temporária random (exemplo com 10 chars)
-    const gerarSenhaTemporaria = () => {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-      let senha = ''
-      for (let i = 0; i < 10; i++) {
-        senha += chars.charAt(Math.floor(Math.random() * chars.length))
-      }
-      return senha
-    }
-    const senhaTemporaria = gerarSenhaTemporaria()
+  let userId;
 
-    // Cria usuário no Supabase Auth (Admin)
-    const { data: userData, error: userError } = await supabase.auth.admin.createUser({
+  if (existingUsers && existingUsers.length > 0) {
+    userId = existingUsers[0].id;
+    console.log(`🔁 Usuário já existente com ID: ${userId}`);
+  } else {
+    // Cria novo usuário no Supabase Auth
+    const { data: newUser, error: userError } = await supabase.auth.admin.createUser({
       email,
       password: senhaTemporaria,
+      email_confirm: true,
       user_metadata: {
-        nome: full_name || '',
-        celular: mobile || ''
-      },
-      email_confirm: true // já confirma o e-mail (se quiser)
-    })
+        nome,
+        celular,
+        email_verified: true
+      }
+    });
 
-    if (userError) {
-      console.error('Erro ao criar usuário:', userError)
-      return res.status(500).json({ error: 'Erro ao criar usuário no Supabase', details: userError.message })
+    if (userError || !newUser?.user?.id) {
+      console.error('❌ Erro ao criar usuário:', userError);
+      return res.status(500).json({ error: 'Erro ao criar usuário.' });
     }
 
-    // Insere/atualiza o profile no Supabase (tabela profiles)
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .upsert({
-        id: userData.id,
-        nome: full_name || '',
-        email,
-        celular: mobile || '',
-        tipo_documento,
-        documento,
-        data_criacao: new Date().toISOString()
-      })
-
-    if (profileError) {
-      console.error('Erro ao inserir/atualizar profile:', profileError)
-      return res.status(500).json({ error: 'Erro ao inserir/atualizar profile', details: profileError.message })
-    }
-
-    // Envia email de boas-vindas com login e senha temporária
-    const msg = {
-      to: email,
-      from: 'contatofitmember@gmail.com', // seu e-mail verificado no SendGrid
-      subject: 'Bem-vindo(a) à Plataforma FitMember!',
-      text: `
-Olá ${full_name || ''},
-
-Seu cadastro foi realizado com sucesso!
-
-Use seu e-mail para login: ${email}
-Senha temporária: ${senhaTemporaria}
-
-Por favor, acesse a plataforma e altere sua senha assim que possível.
-
-Obrigado(a)!
-      `,
-      html: `
-<p>Olá <strong>${full_name || ''}</strong>,</p>
-<p>Seu cadastro foi realizado com sucesso!</p>
-<p><strong>Login:</strong> ${email}<br />
-<strong>Senha temporária:</strong> ${senhaTemporaria}</p>
-<p>Por favor, acesse a plataforma e altere sua senha assim que possível.</p>
-<p>Obrigado(a)!</p>
-`
-    }
-
-    try {
-      await sgMail.send(msg)
-    } catch (err) {
-      console.error('Erro ao enviar email:', err)
-      // Continue sem bloquear, mas avise no log
-    }
-
-    return res.status(200).json({ message: 'Usuário criado e email enviado com sucesso.' })
-  } catch (err) {
-    console.error('Erro no webhook:', err)
-    return res.status(500).json({ error: 'Erro interno no servidor' })
+    userId = newUser.user.id;
+    console.log(`✅ Usuário criado no Auth: ${userId}`);
   }
+
+  // Cria/atualiza o perfil
+  const profileData = {
+    id: userId,
+    nome,
+    email,
+    celular,
+    cpf: CPF || '',
+    cnpj: CNPJ || '',
+    documento,
+    tipo_documento,
+    produto_nome: body.Product?.product_name || '',
+    tipo_produto: body.product_type || '',
+    valor_comissao: body.Commissions?.my_commission || 0,
+    status_pedido: body.order_status || '',
+    data_criacao: new Date(body.created_at),
+    data_atualizacao: new Date(body.updated_at)
+  };
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .upsert(profileData, { onConflict: 'id' });
+
+  if (profileError) {
+    console.error('❌ Erro ao inserir/atualizar profile:', profileError);
+    return res.status(500).json({ error: 'Erro ao salvar perfil.' });
+  }
+
+  console.log('✅ Usuário e perfil criados/atualizados com sucesso.');
+
+  // Envia e-mail de boas-vindas
+  const msg = {
+    to: email,
+    from: process.env.FROM_EMAIL, // ex: 'contatofitmember@gmail.com'
+    subject: 'Seja bem-vindo à FitMember!',
+    html: `
+      <h2>Olá ${nome}, seja bem-vindo(a)!</h2>
+      <p>Seu acesso está pronto. Aqui estão seus dados:</p>
+      <ul>
+        <li><strong>Login:</strong> ${email}</li>
+        <li><strong>Senha:</strong> ${senhaTemporaria}</li>
+      </ul>
+      <p><a href="https://fitmemeber.lovable.app">Clique aqui para acessar sua área de membros</a></p>
+      <p>Recomendamos que você troque sua senha após o primeiro login.</p>
+      <br />
+      <p>Equipe FitMember</p>
+    `
+  };
+
+  try {
+    await sgMail.send(msg);
+    console.log(`📧 E-mail de boas-vindas enviado para ${email}`);
+  } catch (emailError) {
+    console.error('❌ Erro ao enviar e-mail:', emailError);
+  }
+
+  return res.status(200).json({ message: 'Usuário processado com sucesso.' });
 }
