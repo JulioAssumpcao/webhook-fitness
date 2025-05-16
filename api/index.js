@@ -1,125 +1,136 @@
-import { createClient } from '@supabase/supabase-js';
-import sgMail from '@sendgrid/mail';
+import { createClient } from '@supabase/supabase-js'
+import sgMail from '@sendgrid/mail'
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const sendgridApiKey = process.env.SENDGRID_API_KEY
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+sgMail.setApiKey(sendgridApiKey)
 
-function gerarSenhaTemporaria(tamanho = 10) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
-  let senha = '';
-  for (let i = 0; i < tamanho; i++) {
-    senha += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return senha;
-}
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: { persistSession: false }
+})
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
-  }
-
   try {
-    const body = req.body;
-    const customer = body.Customer;
-
-    if (!customer || !customer.email) {
-      return res.status(400).json({ error: 'Dados do cliente incompletos' });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' })
     }
 
-    // Gera senha temporária
-    const senhaTemporaria = gerarSenhaTemporaria();
+    const body = req.body
 
-    // Cria usuário no Supabase Auth
-    const { data: user, error: authError } = await supabase.auth.admin.createUser({
-      email: customer.email,
+    // Dados do cliente
+    const {
+      Customer: {
+        full_name,
+        email,
+        mobile,
+        CPF,
+        cnpj
+      } = {}
+    } = body
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email é obrigatório' })
+    }
+
+    // Define o tipo de documento
+    let tipo_documento = null
+    let documento = null
+
+    if (CPF && CPF.trim() !== '') {
+      tipo_documento = 'CPF'
+      documento = CPF.trim()
+    } else if (cnpj && cnpj.trim() !== '') {
+      tipo_documento = 'CNPJ'
+      documento = cnpj.trim()
+    } else {
+      tipo_documento = 'Outro'
+      documento = null
+    }
+
+    // Cria senha temporária random (exemplo com 10 chars)
+    const gerarSenhaTemporaria = () => {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+      let senha = ''
+      for (let i = 0; i < 10; i++) {
+        senha += chars.charAt(Math.floor(Math.random() * chars.length))
+      }
+      return senha
+    }
+    const senhaTemporaria = gerarSenhaTemporaria()
+
+    // Cria usuário no Supabase Auth (Admin)
+    const { data: userData, error: userError } = await supabase.auth.admin.createUser({
+      email,
       password: senhaTemporaria,
-      email_confirm: true,
       user_metadata: {
-        nome: customer.full_name,
-        celular: customer.mobile,
+        nome: full_name || '',
+        celular: mobile || ''
       },
-    });
+      email_confirm: true // já confirma o e-mail (se quiser)
+    })
 
-    if (authError) {
-      // Se usuário já existe, pode tentar atualizar o perfil direto
-      if (!authError.message.includes('duplicate')) {
-        throw authError;
-      }
+    if (userError) {
+      console.error('Erro ao criar usuário:', userError)
+      return res.status(500).json({ error: 'Erro ao criar usuário no Supabase', details: userError.message })
     }
 
-    const userId = user ? user.id : null;
-
-    // Se não criou usuário, busca o id do usuário existente
-    if (!userId) {
-      const { data: existingUsers, error: searchUserError } = await supabase
-        .from('auth.users')
-        .select('id')
-        .eq('email', customer.email)
-        .limit(1)
-        .single();
-
-      if (searchUserError || !existingUsers) {
-        throw searchUserError || new Error('Usuário existente não encontrado');
-      }
-      userId = existingUsers.id;
-    }
-
-    // Define tipo_documento e separa cpf/cnpj
-    const tipo_documento = customer.CPF ? 'CPF' : (customer.cnpj ? 'CNPJ' : null);
-
-    // Insere ou atualiza o profile
+    // Insere/atualiza o profile no Supabase (tabela profiles)
     const { error: profileError } = await supabase
       .from('profiles')
       .upsert({
-        id: userId,
-        nome: customer.full_name,
-        email: customer.email,
-        celular: customer.mobile,
+        id: userData.id,
+        nome: full_name || '',
+        email,
+        celular: mobile || '',
         tipo_documento,
-        cpf: customer.CPF || null,
-        cnpj: customer.cnpj || null,
-        produto_nome: body.Product?.product_name || null,
-        tipo_produto: body.product_type || null,
-        valor_comissao: body.Commissions?.my_commission || null,
-        status_pedido: body.order_status || null,
-        data_criacao: body.created_at || null,
-        data_atualizacao: body.updated_at || null,
-        subscription_id: null,
-      }, { onConflict: 'id' });
+        documento,
+        data_criacao: new Date().toISOString()
+      })
 
     if (profileError) {
-      throw profileError;
+      console.error('Erro ao inserir/atualizar profile:', profileError)
+      return res.status(500).json({ error: 'Erro ao inserir/atualizar profile', details: profileError.message })
     }
 
-    // Enviar email de boas-vindas com login e senha temporária
+    // Envia email de boas-vindas com login e senha temporária
     const msg = {
-      to: customer.email,
-      from: process.env.FROM_EMAIL, // ex: 'contatofitmember@gmail.com'
-      subject: 'Bem-vindo(a) à plataforma! Seu login e senha temporária',
-      text: `Olá ${customer.full_name},
+      to: email,
+      from: 'contatofitmember@gmail.com', // seu e-mail verificado no SendGrid
+      subject: 'Bem-vindo(a) à Plataforma FitMember!',
+      text: `
+Olá ${full_name || ''},
 
-Seu cadastro foi realizado com sucesso.
+Seu cadastro foi realizado com sucesso!
 
-Email: ${customer.email}
+Use seu e-mail para login: ${email}
 Senha temporária: ${senhaTemporaria}
 
-Por favor, faça login e altere sua senha assim que possível.
+Por favor, acesse a plataforma e altere sua senha assim que possível.
 
-Abraços,
-Equipe FitMember`,
-    };
+Obrigado(a)!
+      `,
+      html: `
+<p>Olá <strong>${full_name || ''}</strong>,</p>
+<p>Seu cadastro foi realizado com sucesso!</p>
+<p><strong>Login:</strong> ${email}<br />
+<strong>Senha temporária:</strong> ${senhaTemporaria}</p>
+<p>Por favor, acesse a plataforma e altere sua senha assim que possível.</p>
+<p>Obrigado(a)!</p>
+`
+    }
 
-    await sgMail.send(msg);
+    try {
+      await sgMail.send(msg)
+    } catch (err) {
+      console.error('Erro ao enviar email:', err)
+      // Continue sem bloquear, mas avise no log
+    }
 
-    console.log(`Usuário criado no Auth: ${userId}`);
-    res.status(200).json({ message: 'Usuário e profile criados/atualizados com sucesso.' });
-
-  } catch (error) {
-    console.error('❌ Erro no webhook:', error);
-    res.status(500).json({ error: error.message || error.toString() });
+    return res.status(200).json({ message: 'Usuário criado e email enviado com sucesso.' })
+  } catch (err) {
+    console.error('Erro no webhook:', err)
+    return res.status(500).json({ error: 'Erro interno no servidor' })
   }
 }
