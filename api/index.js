@@ -82,7 +82,7 @@ export default async function handler(req, res) {
       <p>Seu acesso está pronto. Aqui estão seus dados:</p>
       <p><strong>Login:</strong> ${email}</p>
       <p><strong>Senha:</strong> ${senhaTemporaria}</p>
-      <p><a href="https://SEU_DOMINIO.com">Clique aqui para acessar sua área de membros</a></p>
+      <p><a href="https://fitmemeber.lovable.app/">Clique aqui para acessar sua área de membros</a></p>
     `,
   };
 
